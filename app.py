@@ -7,6 +7,83 @@ import math
 import requests
 import streamlit as st
 
+# ---------- Style Injection ----------
+st.markdown("""
+<style>
+/* 背景整体柔和 */
+.main {
+    background-color: #fafafa;
+}
+
+/* 卡片容器 */
+div[data-testid="stContainer"] > div > div > div > div > div[role="region"] {
+    overflow: visible !important;
+}
+
+/* 每个电影卡片 */
+div[data-testid="stVerticalBlock"] > div.stContainer {
+    border-radius: 16px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    background-color: white !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+div[data-testid="stVerticalBlock"] > div.stContainer:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+}
+
+/* 标题 */
+h3, h4, h5, h6 {
+    color: #333;
+    font-weight: 600 !important;
+}
+
+/* 评分星星 */
+[data-testid="stMarkdownContainer"] span {
+    color: #f6b800 !important;
+}
+
+/* 按钮排版：Favorite / Details / TMDB */
+div[data-testid="stHorizontalBlock"] button {
+    font-size: 0.85rem !important;
+    border-radius: 8px !important;
+    background-color: #f1f1f1 !important;
+    color: #333 !important;
+    border: none !important;
+    padding: 0.35rem 0.6rem !important;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+}
+div[data-testid="stHorizontalBlock"] button:hover {
+    background-color: #dcecff !important;
+    transform: translateY(-1px);
+}
+div[data-testid="stHorizontalBlock"] button:active {
+    background-color: #c0deff !important;
+}
+
+/* 分页按钮 */
+button[kind="secondary"] {
+    border-radius: 10px !important;
+    border: 1px solid #ddd !important;
+    background: #f9f9f9 !important;
+}
+button[kind="secondary"]:hover {
+    background: #eef7ff !important;
+}
+
+/* 收藏星标按钮的特殊高亮 */
+button[title*="Unfavorite"] {
+    background-color: #ffe8a1 !important;
+    color: #000 !important;
+    font-weight: 600;
+}
+button[title*="Unfavorite"]:hover {
+    background-color: #ffd34e !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 st.set_page_config(page_title="TMDB Movie Explorer", page_icon="🎬", layout="wide")
 
 TMDB_API = "https://api.themoviedb.org/3"
