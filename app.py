@@ -13,65 +13,70 @@ st.markdown("""
 /* 背景 */
 .main { background-color: #fafafa; }
 
-/* 卡片容器美化 */
-div[data-testid="stVerticalBlock"] > div.stContainer {
-  border-radius: 16px !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  background: #fff !important;
-  transition: transform .15s ease, box-shadow .15s ease;
-  display: block; /* 外层容器 */
+/* 外层容器（Streamlit 的 container） */
+div[data-testid="stVerticalBlock"] > div.stContainer{
+  border-radius:16px !important;
+  background:#fff !important;
+  box-shadow:0 2px 8px rgba(0,0,0,.07);
+  transition:transform .15s ease, box-shadow .15s ease;
 }
-div[data-testid="stVerticalBlock"] > div.stContainer:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
-}
-
-/* 内层真正的卡片框架：等高关键 */
-.card-fixed{
-  display:flex;
-  flex-direction:column;
-  min-height: 420px;  /* 卡片最小高度，可按喜好微调 */
+div[data-testid="stVerticalBlock"] > div.stContainer:hover{
+  transform:translateY(-2px);
+  box-shadow:0 4px 14px rgba(0,0,0,.12);
 }
 
-/* 顶部内容块占据剩余高度（按钮压底部） */
-.card-top{ flex: 1 1 auto; }
-
-/* 概要 7 行省略 */
-.overview-7{
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 7;
-  overflow: hidden;
-  line-height: 1.2;
-  min-height: calc(1.2em * 7);
+/* ---- 卡片：三行网格，均匀占满 ---- */
+.card-grid{
+  display:grid;
+  grid-template-rows: auto 1fr auto;  /* 顶部自动，中间自适应填充，底部按钮固定 */
+  gap:.6rem;
+  min-height: 520px;                  /* 统一卡片高度（可按喜好调整） */
+  padding:.6rem .6rem .75rem .6rem;  /* 让内容更紧凑一点 */
 }
 
-/* 标题 2 行省略，大小与 subheader 接近 */
-.title-2{
-  font-size: 1.15rem;
-  font-weight: 700;
-  margin: 0 0 .25rem 0;
-  color:#222;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+/* 顶部两列：海报 + 文案（标题/meta）*/
+.topcols{
+  display:grid;
+  grid-template-columns: 120px 1fr;   /* 海报宽度固定，右侧自适应 */
+  gap:.75rem;
+  align-items:start;
 }
 
-/* meta（日期/评分） */
-.meta{ color:#666; font-size:.9rem; margin-bottom:.35rem; }
-
-/* 海报固定高度，裁切 */
+/* 海报固定高，裁切填充 */
 .poster-img{
   width:100%;
-  height:220px;
+  height:200px;
   object-fit:cover;
   border-radius:12px;
   display:block;
 }
 
-/* 按钮横排：等宽、居中、贴底 */
-.btnbar-wrap{ margin-top:auto; padding-top:.35rem; }
+/* 标题两行省略 */
+.title-2{
+  font-size:1.12rem;
+  font-weight:700;
+  color:#222;
+  margin:0 0 .25rem 0;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+}
+
+/* meta */
+.meta{ color:#666; font-size:.9rem; margin-bottom:.35rem; }
+
+/* 简介 8 行省略，撑满中间行 */
+.overview-8{
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:8;
+  overflow:hidden;
+  line-height:1.25;
+  min-height: calc(1.25em * 8);
+}
+
+/* 底部按钮：横排、等宽、居中 */
 .btnbar{ display:flex; justify-content:center; gap:.5rem; }
 .btnbar .stButton>button{
   width:8rem;
@@ -86,7 +91,7 @@ div[data-testid="stVerticalBlock"] > div.stContainer:hover {
 .btnbar .stButton>button:hover{ background:#dcecff !important; transform:translateY(-1px); }
 .btnbar .stButton>button:active{ background:#c0deff !important; }
 
-/* 次级按钮（分页） */
+/* 次级按钮（分页等） */
 button[kind="secondary"]{
   border-radius:10px !important;
   border:1px solid #ddd !important;
@@ -95,6 +100,7 @@ button[kind="secondary"]{
 button[kind="secondary"]:hover{ background:#eef7ff !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 # -------------------- Constants --------------------
 DEFAULT_LANG = "en-US"
@@ -290,7 +296,7 @@ def _fav_toggle(mid: int):
     else: favs.add(mid)
 
 def movie_card_horizontal(m, poster_size="w342"):
-    """横排卡片：等高 + 简介/标题省略 + 底部按钮对齐"""
+    """三行网格卡片：上(海报/标题/meta) - 中(简介填充) - 下(按钮)"""
     # ---- 数据兜底 ----
     poster = m.get("poster_path")
     title  = m.get("title") or m.get("name") or "Untitled"
@@ -307,48 +313,45 @@ def movie_card_horizontal(m, poster_size="w342"):
     poster_url = img_url(poster.strip(), poster_size) if isinstance(poster, str) and poster.strip() else IMG_FALLBACK
 
     with st.container(border=True):
-        # 用一个真正的等高容器包住整张卡片
-        st.markdown('<div class="card-fixed">', unsafe_allow_html=True)
+        st.markdown('<div class="card-grid">', unsafe_allow_html=True)
 
-        # ===== 顶部内容（会自动占满高度） =====
-        st.markdown('<div class="card-top">', unsafe_allow_html=True)
-        top = st.columns([1, 2])
-        with top[0]:
-            st.markdown(
-                f'<img src="{poster_url}" alt="poster" class="poster-img">', unsafe_allow_html=True
-            )
-        with top[1]:
-            # 标题 2 行省略
-            st.markdown(f'<div class="title-2">{title}</div>', unsafe_allow_html=True)
-            meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
-            if meta:
-                st.markdown(f'<div class="meta">{meta}</div>', unsafe_allow_html=True)
-            if overview:
-                st.markdown(f'<div class="overview-7">{overview}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # end card-top
+        # ===== Row 1：顶部（海报 + 标题/meta）=====
+        st.markdown('<div class="topcols">', unsafe_allow_html=True)
+        # 左：海报
+        st.markdown(f'<img src="{poster_url}" alt="poster" class="poster-img">', unsafe_allow_html=True)
+        # 右：标题 + meta
+        st.markdown('<div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="title-2">{title}</div>', unsafe_allow_html=True)
+        meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
+        if meta:
+            st.markdown(f'<div class="meta">{meta}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # end topcols
 
-        # ===== 底部按钮：等宽、居中、贴底 =====
-        st.markdown('<div class="btnbar-wrap"><div class="btnbar">', unsafe_allow_html=True)
+        # ===== Row 2：简介（填充中间行）=====
+        if overview:
+            st.markdown(f'<div class="overview-8">{overview}</div>', unsafe_allow_html=True)
+        else:
+            st.caption("No overview available.")
+
+        # ===== Row 3：底部按钮（横向等宽，居中）=====
+        st.markdown('<div class="btnbar">', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
 
-        # Favorite：去掉表情/图标，用纯文本，避免被拆成两段
         fav_label = "Unfavorite" if mid in st.session_state["favorites"] else "Favorite"
         with c1:
             if st.button(fav_label, key=f"fav_{mid}", use_container_width=True):
                 _fav_toggle(mid); st.rerun()
 
-        # Details
         with c2:
             if st.button("Details", key=f"detail_{mid}", use_container_width=True):
                 st.session_state["detail_id"] = mid; st.rerun()
 
-        # TMDB 链接
         with c3:
             st.link_button("TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
 
-        st.markdown('</div></div>', unsafe_allow_html=True)  # end btnbar
-
-        st.markdown('</div>', unsafe_allow_html=True)  # end card-fixed
+        st.markdown('</div>', unsafe_allow_html=True)  # end btnbar
+        st.markdown('</div>', unsafe_allow_html=True)  # end card-grid
 
 
 # -------------------- Results --------------------
