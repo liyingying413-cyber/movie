@@ -10,85 +10,80 @@ import streamlit as st
 # ---------- Style Injection ----------
 st.markdown("""
 <style>
-/* 背景整体柔和 */
-.main {
-    background-color: #fafafa;
-}
+/* 背景柔和 */
+.main { background-color: #fafafa; }
 
-/* 卡片容器 */
-div[data-testid="stContainer"] > div > div > div > div > div[role="region"] {
-    overflow: visible !important;
-}
-
-/* 每个电影卡片 */
+/* 卡片：圆角+阴影+悬浮 */
 div[data-testid="stVerticalBlock"] > div.stContainer {
-    border-radius: 16px !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-    background-color: white !important;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  background: #fff !important;
+  transition: transform .15s ease, box-shadow .15s ease;
+  display: flex;             /* 关键：让卡片成为纵向 Flex */
+  flex-direction: column;    /* 内容上下堆叠 */
+  height: 100%;              /* 占满可用高度 */
 }
 div[data-testid="stVerticalBlock"] > div.stContainer:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  transform: translateY(-3px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
 }
 
-/* 标题 */
-h3, h4, h5, h6 {
-    color: #333;
-    font-weight: 600 !important;
+/* 电影标题/评分 */
+h3, h4, h5, h6 { color: #333; font-weight: 600 !important; }
+[data-testid="stMarkdownContainer"] span { color: #f6b800 !important; }
+
+/* 概要文本：固定高度 + 省略号（7行） */
+.overview-7 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;   /* 显示 7 行 */
+  overflow: hidden;
+  line-height: 1.2;
+  min-height: calc(1.2em * 7);  /* 保持占位高度一致 */
 }
 
-/* 评分星星 */
-[data-testid="stMarkdownContainer"] span {
-    color: #f6b800 !important;
+/* 按钮横排：居中 + 等间距 */
+.btnbar-wrap {               /* 外层居中容器（让按钮条居中且靠底） */
+  margin-top: auto;          /* 关键：把按钮条推到卡片底部 */
+  padding-top: .35rem;
 }
+.btnbar {
+  display: flex;
+  justify-content: center;
+  gap: .5rem;
+}
+.btnbar .stButton>button {
+  width: 8rem;               /* 三按钮等宽 */
+  font-size: .85rem !important;
+  border-radius: 10px !important;
+  background: #f1f1f1 !important;
+  color: #333 !important;
+  border: none !important;
+  padding: .38rem .6rem !important;
+  transition: background-color .15s ease, transform .1s ease;
+}
+.btnbar .stButton>button:hover {
+  background: #dcecff !important;
+  transform: translateY(-1px);
+}
+.btnbar .stButton>button:active { background: #c0deff !important; }
 
-/* 按钮排版：Favorite / Details / TMDB */
-div[data-testid="stHorizontalBlock"] button {
-    font-size: 0.85rem !important;
-    border-radius: 8px !important;
-    background-color: #f1f1f1 !important;
-    color: #333 !important;
-    border: none !important;
-    padding: 0.35rem 0.6rem !important;
-    transition: background-color 0.15s ease, transform 0.1s ease;
-}
-div[data-testid="stHorizontalBlock"] button:hover {
-    background-color: #dcecff !important;
-    transform: translateY(-1px);
-}
-div[data-testid="stHorizontalBlock"] button:active {
-    background-color: #c0deff !important;
+/* 已收藏状态 */
+.btnbar .stButton>button:has(span:contains("Unfavorite")) {
+  background: #ffe8a1 !important;
+  font-weight: 600;
 }
 
 /* 分页按钮 */
 button[kind="secondary"] {
-    border-radius: 10px !important;
-    border: 1px solid #ddd !important;
-    background: #f9f9f9 !important;
+  border-radius: 10px !important;
+  border: 1px solid #ddd !important;
+  background: #f9f9f9 !important;
 }
-button[kind="secondary"]:hover {
-    background: #eef7ff !important;
-}
-
-/* 收藏星标按钮的特殊高亮 */
-button[title*="Unfavorite"] {
-    background-color: #ffe8a1 !important;
-    color: #000 !important;
-    font-weight: 600;
-}
-button[title*="Unfavorite"]:hover {
-    background-color: #ffd34e !important;
-}
+button[kind="secondary"]:hover { background: #eef7ff !important; }
 </style>
 """, unsafe_allow_html=True)
 
-
-st.set_page_config(page_title="TMDB Movie Explorer", page_icon="🎬", layout="wide")
-
-TMDB_API = "https://api.themoviedb.org/3"
-IMG_FALLBACK = "https://via.placeholder.com/342x513?text=No+Poster"
-DEFAULT_LANG = "en-US"
 
 # ---------------- API Gate ----------------
 st.sidebar.header("🔐 API Credentials")
@@ -317,7 +312,7 @@ def _fav_toggle(mid: int):
 
 
 def movie_card_horizontal(m, poster_size="w342"):
-    """卡片：横向内容，底部三按钮横排"""
+    """卡片：横排内容 + 固定高度简介 + 底部按钮横向居中"""
     poster = m.get("poster_path")
     title = m.get("title") or m.get("name") or "Untitled"
     rel = m.get("release_date") or ""
@@ -326,30 +321,35 @@ def movie_card_horizontal(m, poster_size="w342"):
     overview = (m.get("overview") or "").strip()
 
     with st.container(border=True):
-        # 头部：封面 + 文案
+        # 顶部：海报 + 文案
         top = st.columns([1, 2])
         with top[0]:
-            st.image(img_url(poster, size=poster_size) if poster else IMG_FALLBACK,
-                     use_container_width=True)
+            st.image(
+                img_url(poster, size=poster_size) if poster else IMG_FALLBACK,
+                use_container_width=True,
+            )
         with top[1]:
             st.subheader(title)
             meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
             if meta:
                 st.caption(meta)
+            # 简介固定 7 行，超出省略
             if overview:
-                st.write(overview[:260] + ("..." if len(overview) > 260 else ""))
+                st.markdown(f'<div class="overview-7">{overview}</div>', unsafe_allow_html=True)
 
-        # 底部：按钮横排
-        b1, b2, b3 = st.columns(3)
-        with b1:
+        # 底部按钮（始终贴底 + 居中等距）
+        st.markdown('<div class="btnbar-wrap"><div class="btnbar">', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        with col1:
             if st.button(("⭐ Unfavorite" if mid in st.session_state["favorites"] else "☆ Favorite"),
-                         key=f"fav_{mid}"):
+                         key=f"fav_{mid}", use_container_width=True):
                 _fav_toggle(mid); st.rerun()
-        with b2:
-            if st.button("🔎 Details", key=f"detail_{mid}"):
+        with col2:
+            if st.button("🔎 Details", key=f"detail_{mid}", use_container_width=True):
                 st.session_state["detail_id"] = mid; st.rerun()
-        with b3:
-            st.link_button("↗ TMDB", f"https://www.themoviedb.org/movie/{mid}")
+        with col3:
+            st.link_button("↗ TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
+        st.markdown('</div></div>', unsafe_allow_html=True)
 
 
 # ---------- 结果页 ----------
