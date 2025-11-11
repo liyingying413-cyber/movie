@@ -1,396 +1,476 @@
-# app.py — TMDB Movie Explorer (Grid 3x4, equal-height cards)
-# -----------------------------------------------------------
-# 需要：pip install streamlit requests
-# 在侧边栏输入 TMDB v3 API key（themoviedb.org 个人设置页里叫“API 키 / API key (v3 auth)”）
-
+# app.py
+import os
 import math
 import requests
 import streamlit as st
 
+# -------------------- Page & Basic --------------------
 st.set_page_config(page_title="TMDB Movie Explorer", page_icon="🎬", layout="wide")
 
-# ==========================
-# --------- CSS ------------
-# ==========================
-CARD_CSS = """
+# ---------- Style Injection ----------
+st.markdown("""
 <style>
-/* ---- 页面主区域留白更紧凑 ---- */
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; }
+/* 背景柔和 */
+.main { background-color: #fafafa; }
 
-/* 让列容器本身也走 flex，避免“上半空白、下半内容” */
-[data-testid="stColumn"] > div {
+/* 卡片：圆角+阴影+悬浮 + Flex撑满 */
+div[data-testid="stVerticalBlock"] > div.stContainer {
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  background: #fff !important;
+  transition: transform .15s ease, box-shadow .15s ease;
   display: flex;
   flex-direction: column;
-}
-
-/* --- 卡片：等高、分区、阴影 --- */
-.movie-card {
-  background: #ffffff;
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 14px;
-  padding: 16px;
-  height: 100%;                  /* 关键：占满列容器高度 */
-  min-height: 520px;             /* 别太矮，视觉更稳 */
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 2px 20px rgba(0,0,0,0.04);
-}
-
-/* 海报固定高度区域，防空白抖动 */
-.poster-wrap {
-  height: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 10px;
-  background: #f6f7f9;
-}
-.poster-wrap img {
   height: 100%;
-  width: auto;
-  object-fit: cover;
+}
+div[data-testid="stVerticalBlock"] > div.stContainer:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
 }
 
-/* 标题/元信息/简介 */
-.content-wrap { margin-top: 12px; }
-.title-row {
-  font-weight: 800;
-  font-size: 1.05rem;
-  margin-bottom: 4px;
-}
-.meta-row {
-  color: #666;
-  font-size: .86rem;
-}
+/* 电影标题/评分 */
+h3, h4, h5, h6 { color: #333; font-weight: 600 !important; }
+[data-testid="stMarkdownContainer"] span { color: #f6b800 !important; }
 
-/* 多行截断，保持卡片等高 */
-.overview {
-  margin-top: 8px;
-  font-size: .94rem;
-  line-height: 1.35;
+/* 概要文本：固定高度 + 省略号（7行） */
+.overview-7 {
   display: -webkit-box;
-  -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;
   overflow: hidden;
+  line-height: 1.2;
+  min-height: calc(1.2em * 7);
 }
 
-/* 占位弹性块，用来把底部按钮“压到底” */
-.flex-spacer { flex: 1 1 auto; }
-
-/* 按钮横排、居中、等距 */
-.btn-row {
+/* 按钮横排：居中 + 等间距 + 等宽 */
+.btnbar-wrap {
+  margin-top: auto;    /* 推到底部 */
+  padding-top: .35rem;
+}
+.btnbar {
   display: flex;
-  gap: 10px;
   justify-content: center;
-  margin-top: 12px;
+  gap: .5rem;
 }
-.btn-row .stButton > button, .btn-row .stLinkButton > a {
-  width: 100px;
-  height: 36px;
-  border-radius: 10px;
-  font-weight: 600;
+.btnbar .stButton>button {
+  width: 8rem;
+  font-size: .85rem !important;
+  border-radius: 10px !important;
+  background: #f1f1f1 !important;
+  color: #333 !important;
+  border: none !important;
+  padding: .38rem .6rem !important;
+  transition: background-color .15s ease, transform .1s ease;
 }
+.btnbar .stButton>button:hover { background: #dcecff !important; transform: translateY(-1px); }
+.btnbar .stButton>button:active { background: #c0deff !important; }
 
-/* 列间距、卡片之间留白 */
-.card-pad { padding: .2rem; }
-
-/* 列表模式下的简洁卡片 */
-.list-card {
-  display: grid;
-  grid-template-columns: 120px 1fr 260px;
-  gap: 16px;
-  align-items: center;
-  background: #fff;
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.04);
+/* 分页按钮 */
+button[kind="secondary"] {
+  border-radius: 10px !important;
+  border: 1px solid #ddd !important;
+  background: #f9f9f9 !important;
 }
-.list-poster {
-  width: 100%;
-  height: 160px;
-  border-radius: 8px;
-  object-fit: cover;
-  background: #f6f7f9;
-}
-
-/* 顶部面包屑/统计 */
-.topbar { color:#666; font-size: .92rem; margin:.2rem 0 1rem; }
+button[kind="secondary"]:hover { background: #eef7ff !important; }
 </style>
-"""
-st.markdown(CARD_CSS, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# ==========================
-# ------- 常量/工具 ---------
-# ==========================
-TMDB_API = "https://api.themoviedb.org/3"
-TMDB_IMG = "https://image.tmdb.org/t/p/"
+# -------------------- Constants --------------------
+DEFAULT_LANG = "en-US"
+IMG_FALLBACK = "https://via.placeholder.com/342x513?text=No+Image"
+TMDB_IMG_BASE = "https://image.tmdb.org/t/p/"   # https://developer.themoviedb.org/reference/configuration-details
 
-def api_get(path, params, api_key):
-    """基础 GET 封装（自动加 key/报错消息）"""
-    params = dict(params or {})
-    params["api_key"] = api_key
-    try:
-        r = requests.get(f"{TMDB_API}{path}", params=params, timeout=25)
-        r.raise_for_status()
-        return r.json()
-    except requests.HTTPError as e:
-        st.error(f"TMDB 请求失败：{e}")
-    except Exception as e:
-        st.error(f"网络异常：{e}")
-    return {}
+UI_COLS = 3
+UI_ROWS = 4
+UI_PAGE_SIZE = UI_COLS * UI_ROWS      # 12
+TMDB_PAGE_SIZE = 20                   # 固定每页 20
 
-@st.cache_data(show_spinner=False, ttl=3600)
-def get_genres(lang, api_key):
-    j = api_get("/genre/movie/list", {"language": lang}, api_key)
-    data = j.get("genres", []) if isinstance(j, dict) else []
-    return {g["id"]: g["name"] for g in data}
+# -------------------- Helpers --------------------
+def img_url(p, size="w342"):
+    if not p: return IMG_FALLBACK
+    return f"{TMDB_IMG_BASE}{size}{p}"
 
-def poster_url(path: str|None, width: int):
-    if not path:
-        return ""  # 无海报
-    # 选用接近的 TMDB 预设宽度档位
-    # 官方有：w185, w342, w500, w780, 原图 original
-    size = "w342"
-    if width <= 200: size = "w185"
-    elif width <= 420: size = "w342"
-    elif width <= 650: size = "w500"
-    elif width <= 900: size = "w780"
-    else: size = "original"
-    return f"{TMDB_IMG}{size}{path}"
+def _get_api_key():
+    # 优先 secrets（如果你在 Cloud 的 secrets 中配置了 TMDB_KEY）
+    return st.secrets.get("TMDB_KEY") or st.session_state.get("TMDB_KEY", "")
 
-# ==========================
-# -------- 侧边栏 ----------
-# ==========================
+def _headers():
+    return {"Accept": "application/json"}
+
+def _base_params(lang=None, region=None):
+    key = _get_api_key()
+    p = {"api_key": key}
+    if lang: p["language"] = lang
+    if region: p["region"] = region
+    return p
+
+# -------------------- TMDB API --------------------
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_genres(api_key: str, lang=None):
+    lang = lang or DEFAULT_LANG
+    url = "https://api.themoviedb.org/3/genre/movie/list"
+    r = requests.get(url, headers=_headers(), params={"api_key": api_key, "language": lang}, timeout=20)
+    r.raise_for_status()
+    return r.json().get("genres", [])
+
+@st.cache_data(ttl=24*3600, show_spinner=False)
+def get_movie_details(api_key: str, movie_id: int, lang=None):
+    lang = lang or DEFAULT_LANG
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}"
+    params = {
+        "api_key": api_key,
+        "language": lang,
+        "append_to_response": "videos,credits,release_dates"
+    }
+    r = requests.get(url, headers=_headers(), params=params, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+@st.cache_data(ttl=6*3600, show_spinner=False)
+def get_watch_providers(api_key: str, movie_id: int):
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers"
+    r = requests.get(url, headers=_headers(), params={"api_key": api_key}, timeout=20)
+    r.raise_for_status()
+    return r.json().get("results", {})
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def search_movies(api_key: str, query: str, page=1, lang=None):
+    lang = lang or DEFAULT_LANG
+    url = "https://api.themoviedb.org/3/search/movie"
+    params = {
+        "api_key": api_key, "language": lang, "query": query,
+        "page": page, "include_adult": False
+    }
+    r = requests.get(url, headers=_headers(), params=params, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    return j.get("results", []), int(j.get("total_results", 0)), int(j.get("total_pages", 1))
+
+@st.cache_data(ttl=900, show_spinner=False)
+def discover_movies(
+    api_key: str, page=1, lang=None, *,
+    with_genres=None, year=None, region=None, sort_by="popularity.desc",
+    include_adult=False, vote_gte=0.0, vote_lte=10.0, runtime_gte=0, runtime_lte=400, original_lang=None
+):
+    lang = lang or DEFAULT_LANG
+    url = "https://api.themoviedb.org/3/discover/movie"
+    params = {
+        "api_key": api_key,
+        "language": lang,
+        "page": page,
+        "include_adult": bool(include_adult),
+        "vote_average.gte": vote_gte,
+        "vote_average.lte": vote_lte,
+        "with_runtime.gte": runtime_gte,
+        "with_runtime.lte": runtime_lte,
+        "sort_by": sort_by
+    }
+    if with_genres: params["with_genres"] = ",".join(map(str, with_genres))
+    if year: params["primary_release_year"] = year
+    if region: params["region"] = region
+    if original_lang: params["with_original_language"] = original_lang
+
+    r = requests.get(url, headers=_headers(), params=params, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    return j.get("results", []), int(j.get("total_results", 0)), int(j.get("total_pages", 1))
+
+# ---------- Pagination window (UI 12/页 -> TMDB 20/页) ----------
+def fetch_window_by_ui_page(api_key: str, ui_page: int, *, lang, keyword, discover_kwargs):
+    start_global = (ui_page - 1) * UI_PAGE_SIZE
+    api_page = start_global // TMDB_PAGE_SIZE + 1
+    offset = start_global % TMDB_PAGE_SIZE
+
+    if keyword:
+        page1, total, _ = search_movies(api_key, keyword, page=api_page, lang=lang)
+    else:
+        page1, total, _ = discover_movies(api_key, page=api_page, lang=lang, **discover_kwargs)
+
+    need = UI_PAGE_SIZE
+    buf = page1[offset: offset + need]
+    need -= len(buf)
+
+    if need > 0:
+        if keyword:
+            page2, _, _ = search_movies(api_key, keyword, page=api_page + 1, lang=lang)
+        else:
+            page2, _, _ = discover_movies(api_key, page=api_page + 1, lang=lang, **discover_kwargs)
+        take2 = min(need, len(page2))
+        buf += page2[:take2]
+
+    total_ui_pages = max(1, math.ceil(total / UI_PAGE_SIZE))
+    return buf, total, total_ui_pages
+
+# -------------------- UI: Sidebar --------------------
 st.sidebar.header("🔐 API Credentials")
 hide = st.sidebar.checkbox("Hide API Key", value=True)
-api_key = st.sidebar.text_input("TMDB v3 API Key", type="password" if hide else "default").strip()
+api_key_input = st.sidebar.text_input("TMDB v3 API Key", value=os.getenv("TMDB_KEY", ""), type="password" if hide else "default")
+if api_key_input:
+    st.session_state["TMDB_KEY"] = api_key_input
+
+api_key = _get_api_key()
 
 st.sidebar.header("🔎 Query Settings")
-keyword = st.sidebar.text_input("Keyword (empty → Discover mode)", value="")
+
 lang = st.sidebar.selectbox(
-    "UI Language", ["en-US", "ko-KR", "ja-JP", "zh-CN", "zh-TW", "fr-FR", "de-DE", "es-ES"],
-    index=0,
+    "UI Language",
+    ["en-US","ko-KR","zh-CN","ja-JP","fr-FR","de-DE","es-ES","it-IT","ru-RU"],
+    index=0
 )
 
-col_a, col_b = st.sidebar.columns(2)
-with col_a:
-    region = st.selectbox("Region (watch availability, cert, etc.)", ["(Any)", "US", "KR", "JP", "GB", "DE", "FR", "ES"], index=1)
-with col_b:
-    sort_by = st.selectbox("Sort by (discover)", [
-        "popularity.desc","popularity.asc",
-        "vote_average.desc","vote_average.asc",
-        "primary_release_date.desc","primary_release_date.asc",
-    ], index=0)
+q = st.sidebar.text_input("Keyword (empty → Discover mode)", value="")
 
+# genres
+genres = []
+try:
+    if api_key:
+        genres = get_genres(api_key, lang=lang)
+except Exception:
+    genres = []
+
+genre_map = {g["name"]: g["id"] for g in genres}
+with_genres_names = st.sidebar.multiselect("Genres (effective when keyword is empty)", list(genre_map.keys()), default=[])
+with_genres = [genre_map[n] for n in with_genres_names]
+
+# discover filters
+filter_by_year = st.sidebar.checkbox("Filter by year", value=False)
+year = st.sidebar.number_input("Year", min_value=1870, max_value=2100, value=2024, step=1, disabled=not filter_by_year)
+region = st.sidebar.selectbox("Region (watch availability, cert, etc.)", ["", "US","KR","CN","JP","GB","FR","DE","IT","ES","RU"], index=1)
 include_adult = st.sidebar.checkbox("Include adult", value=False)
-st.sidebar.caption("Vote average range")
-va_min, va_max = 0.0, 10.0
-st.sidebar.slider("", min_value=0.0, max_value=10.0, value=(0.0, 10.0), step=0.1, key="vote_rng")
-st.sidebar.caption("Runtime (min)")
-st.sidebar.slider("", 0, 240, (0, 240), key="rt_rng")
+vote_gte, vote_lte = st.sidebar.slider("Vote average range", 0.0, 10.0, (0.0, 10.0), step=0.1)
+rt_gte, rt_lte   = st.sidebar.slider("Runtime (min)", 0, 240, (0, 240), step=5)
+orig_lang = st.sidebar.selectbox("Original language", ["","en","ko","zh","ja","fr","de","es","it","ru"], index=0)
+sort_by = st.sidebar.selectbox("Sort by (discover)", ["popularity.desc","vote_average.desc","primary_release_date.desc","revenue.desc"], index=0)
 
-orig_lang = st.sidebar.selectbox("Original language", ["(Any)","en","ko","ja","zh","fr","de","es","it","ru","pt"], index=0)
+layout = st.sidebar.radio("Layout", ["Grid","List"], index=0, horizontal=True)
+poster_size = st.sidebar.select_slider("Poster size", options=["w185","w342","w500"], value="w342")
 
-genres_map = get_genres(lang, api_key) if api_key else {}
-sel_genre = st.sidebar.multiselect("Genres", options=list(genres_map.values()), default=[])
+page = st.sidebar.number_input("Page", min_value=1, value=int(st.query_params.get("page",[1])[0]), step=1)
+go = st.sidebar.button("Start / Refresh", use_container_width=True)
 
-st.sidebar.header("🧩 Layout")
-layout_mode = st.sidebar.radio("Layout", ["Grid", "List"], index=0, horizontal=True)
-poster_w = st.sidebar.slider("Poster size", 185, 500, 342, step=1)
-page = st.sidebar.number_input("Page", min_value=1, value=1, step=1)
-R, C = (4, 3)   # 4 行 × 3 列
-PER_PAGE = R * C
+# init session states
+st.session_state.setdefault("favorites", set())
 
-with st.sidebar:
-    c1, c2, c3 = st.columns([1,1,1])
-    if c1.button("⏮ First", use_container_width=True):
-        st.session_state["jump_page"] = 1
-    if c2.button("◀ Prev", use_container_width=True):
-        st.session_state["jump_page"] = max(1, page-1)
-    if c3.button("Next ▶", use_container_width=True):
-        st.session_state["jump_page"] = page+1
-    if "jump_page" in st.session_state:
-        page = st.session_state.pop("jump_page")
+# -------------------- Header --------------------
+st.title("🎬 TMDB Movie Explorer")
+st.caption("Get a free v3 API key from https://www.themoviedb.org/ · This app supports search and powerful discover filters.")
+
+tab_results, tab_fav = st.tabs(["📀 Explore", "⭐ Favorites"])
 
 if not api_key:
-    st.info("请在左侧输入 TMDB v3 API Key 后再开始～")
+    with tab_results:
+        st.warning("Please enter your **TMDB v3 API Key** in the left sidebar.")
     st.stop()
 
-# ==========================
-# -------- 数据获取 ---------
-# ==========================
-def ids_by_genre_names(names):
-    inv = {v:k for k,v in genres_map.items()}
-    return [inv[n] for n in names if n in inv]
+# -------------------- Card Renderer --------------------
+def _fav_toggle(mid: int):
+    favs = st.session_state["favorites"]
+    if mid in favs: favs.remove(mid)
+    else: favs.add(mid)
 
-def search_movies():
-    if keyword.strip():
-        # 关键字搜索
-        j = api_get("/search/movie", {
-            "query": keyword, "language": lang, "include_adult": str(include_adult).lower(),
-            "page": page
-        }, api_key)
-        results = j.get("results", []) if isinstance(j, dict) else []
-        total = j.get("total_results", 0)
-        total_pages = j.get("total_pages", 1)
-        return results, total, total_pages
-
-    # Discover
-    params = {
-        "language": lang,
-        "include_adult": str(include_adult).lower(),
-        "sort_by": sort_by,
-        "page": page,
-        "vote_average.gte": st.session_state.vote_rng[0],
-        "vote_average.lte": st.session_state.vote_rng[1],
-        "with_runtime.gte": st.session_state.rt_rng[0],
-        "with_runtime.lte": st.session_state.rt_rng[1],
-    }
-    if region and region != "(Any)":
-        params["region"] = region
-        params["watch_region"] = region
-    if orig_lang != "(Any)":
-        params["with_original_language"] = orig_lang
-    g_ids = ids_by_genre_names(sel_genre)
-    if g_ids:
-        params["with_genres"] = ",".join(map(str, g_ids))
-
-    j = api_get("/discover/movie", params, api_key)
-    results = j.get("results", []) if isinstance(j, dict) else []
-    total = j.get("total_results", 0)
-    total_pages = j.get("total_pages", 1)
-    return results, total, total_pages
-
-movies, total_items, total_pages = search_movies()
-
-st.markdown(
-    f'<div class="topbar">'
-    f'{total_items:,.0f} result(s) • Page <b>{page}</b> / {total_pages:,} '
-    f'• Showing <b>{min(PER_PAGE, len(movies))}</b> per page ({C}×{R})'
-    f'</div>', unsafe_allow_html=True
-)
-
-# ==========================
-# ------- 卡片组件 ----------
-# ==========================
-def render_movie_grid_item(m):
-    """网格卡片（等高）"""
+def movie_card_horizontal(m, poster_size="w342"):
+    """卡片：横排内容 + 固定高度简介 + 底部按钮横向居中（使用 <img> 更稳）"""
+    # ---- 数据兜底 ----
+    poster = m.get("poster_path")
     title = m.get("title") or m.get("name") or "Untitled"
-    date = (m.get("release_date") or "")[:10]
-    vote = m.get("vote_average") or 0
-    overview = m.get("overview") or ""
-    poster = poster_url(m.get("poster_path"), poster_w)
-    tmdb_url = f'https://www.themoviedb.org/movie/{m.get("id")}'
+    rel = m.get("release_date") or ""
+    try:
+        rate = float(m.get("vote_average", 0) or 0.0)
+    except Exception:
+        rate = 0.0
+    mid = int(m.get("id", 0) or 0)
+    overview = (m.get("overview") or "").strip()
 
-    # 卡片外框
-    st.markdown('<div class="movie-card">', unsafe_allow_html=True)
+    # poster_size 兜底成字符串
+    poster_size = str(poster_size or "w342")
 
-    # 海报
-    if poster:
-        st.markdown(f'<div class="poster-wrap"><img src="{poster}" alt="poster"></div>',
-                    unsafe_allow_html=True)
+    # ---- 生成图片 URL（最稳妥的字符串）----
+    if isinstance(poster, str) and poster.strip():
+        poster_url = img_url(poster.strip(), size=poster_size)
     else:
-        st.markdown('<div class="poster-wrap"><div style="opacity:.5">No Image</div></div>',
-                    unsafe_allow_html=True)
+        poster_url = IMG_FALLBACK
 
-    # 文本区
-    st.markdown('<div class="content-wrap">', unsafe_allow_html=True)
-    st.markdown(f'<div class="title-row">{title}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="meta-row">{date} · ⭐ {vote:.1f}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="overview">{overview}</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        # 顶部：海报 + 文案
+        top = st.columns([1, 2])
+        with top[0]:
+            # 用 HTML <img>，避免 st.image 的严格类型检查
+            st.markdown(
+                f'''
+                <img src="{poster_url}"
+                     alt="poster"
+                     style="width:100%;border-radius:12px;display:block;object-fit:cover;">
+                ''',
+                unsafe_allow_html=True
+            )
+        with top[1]:
+            st.subheader(title)
+            meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
+            if meta:
+                st.caption(meta)
+            if overview:
+                st.markdown(f'<div class="overview-7">{overview}</div>', unsafe_allow_html=True)
 
-    # 弹性占位，保证下面按钮“压底”
-    st.markdown('<div class="flex-spacer"></div>', unsafe_allow_html=True)
+        # 底部按钮（贴底 + 居中）
+        st.markdown('<div class="btnbar-wrap"><div class="btnbar">', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button(("⭐ Unfavorite" if mid in st.session_state["favorites"] else "☆ Favorite"),
+                         key=f"fav_{mid}", use_container_width=True):
+                _fav_toggle(mid); st.rerun()
+        with c2:
+            if st.button("🔎 Details", key=f"detail_{mid}", use_container_width=True):
+                st.session_state["detail_id"] = mid; st.rerun()
+        with c3:
+            st.link_button("↗ TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
+        st.markdown('</div></div>', unsafe_allow_html=True)
 
-    # 按钮横排
-    st.markdown('<div class="btn-row">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1,1,1], vertical_alignment="center")
-    with c1:
-        st.button("⭐ Favorite", key=f"fav_{m['id']}", use_container_width=True)
-    with c2:
-        with st.expander("🔍 Details", expanded=False):
-            st.write(f"**Title**: {title}")
-            st.write(f"**Release**: {date}")
-            st.write(f"**Rating**: {vote:.1f}")
-            g_ids = m.get("genre_ids") or []
-            if genres_map:
-                st.write("**Genres**:", ", ".join(genres_map.get(g,"") for g in g_ids if g in genres_map))
-            st.write("**Overview**:", overview or "(no overview)")
-    with c3:
-        st.link_button("↗ TMDB", tmdb_url, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+# -------------------- Results --------------------
+with tab_results:
+    if not go:
+        st.info("Set filters and click **Start / Refresh**.")
+        st.stop()
 
-    st.markdown('</div>', unsafe_allow_html=True)  # end .movie-card
+    discover_kwargs = dict(
+        with_genres=with_genres,
+        year=int(year) if filter_by_year else None,
+        region=region or None,
+        sort_by=sort_by,
+        include_adult=include_adult,
+        vote_gte=float(vote_gte),
+        vote_lte=float(vote_lte),
+        runtime_gte=int(rt_gte),
+        runtime_lte=int(rt_lte),
+        original_lang=(orig_lang or None),
+    )
 
-
-def render_movie_list_item(m):
-    """列表卡片（简洁行）"""
-    title = m.get("title") or m.get("name") or "Untitled"
-    date = (m.get("release_date") or "")[:10]
-    vote = m.get("vote_average") or 0
-    overview = m.get("overview") or ""
-    poster = poster_url(m.get("poster_path"), 200)
-    tmdb_url = f'https://www.themoviedb.org/movie/{m.get("id")}'
-
-    with st.container():
-        st.markdown('<div class="list-card">', unsafe_allow_html=True)
-        # 左：海报
-        if poster:
-            st.markdown(f'<img class="list-poster" src="{poster}" alt="poster">', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="list-poster" />', unsafe_allow_html=True)
-        # 中：文本
-        st.markdown(
-            f"""<div>
-                <div class="title-row">{title}</div>
-                <div class="meta-row">{date} · ⭐ {vote:.1f}</div>
-                <div style="margin-top:8px">{overview}</div>
-            </div>""", unsafe_allow_html=True
+    try:
+        window, total, total_ui_pages = fetch_window_by_ui_page(
+            api_key, page, lang=lang, keyword=q.strip() or None, discover_kwargs=discover_kwargs
         )
-        # 右：按钮
-        b1, b2, b3 = st.columns(3)
-        with b1: st.button("⭐ Favorite", key=f"fav_list_{m['id']}", use_container_width=True)
-        with b2:
-            with st.expander("🔍 Details", expanded=False):
-                st.write(f"**Title**: {title}")
-                st.write(f"**Release**: {date}")
-                st.write(f"**Rating**: {vote:.1f}")
-                g_ids = m.get("genre_ids") or []
-                if genres_map:
-                    st.write("**Genres**:", ", ".join(genres_map.get(g,"") for g in g_ids if g in genres_map))
-                st.write("**Overview**:", overview or "(no overview)")
-        with b3: st.link_button("↗ TMDB", tmdb_url, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+    except requests.HTTPError as e:
+        st.error(f"TMDB error: {e}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Failed: {e}")
+        st.stop()
 
+    st.write(f"**{total:,}** result(s) • Page **{page} / {total_ui_pages}** • Showing **{len(window)}** per page (3×4)")
 
-# ==========================
-# --------- 渲染 -----------
-# ==========================
-if not movies:
-    st.warning("没有结果。可以换个关键词 / 语言 / 地区 / 筛选试试。")
-else:
-    if layout_mode == "Grid":
-        # 3×4 网格
-        idx = 0
-        for _ in range(R):
-            cols = st.columns(C, gap="large")
-            for c in cols:
-                if idx >= len(movies):  # 不足 12 个时补位
-                    with c:
-                        st.markdown('<div class="movie-card" style="opacity:.0"></div>', unsafe_allow_html=True)
-                    continue
-                with c.container():
-                    st.markdown('<div class="card-pad">', unsafe_allow_html=True)
-                    render_movie_grid_item(movies[idx])
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    idx += 1
+    if not window:
+        st.info("No results. Try another keyword/filters.")
+        st.stop()
+
+    rows = [window[i:i+UI_COLS] for i in range(0, len(window), UI_COLS)]
+    for row in rows:
+        cols = st.columns(UI_COLS)
+        for c, item in zip(cols, row):
+            with c:
+                movie_card_horizontal(item, poster_size=poster_size)
+
+    st.divider()
+    c1,c2,c3,c4 = st.columns(4)
+    with c1:
+        if st.button("⏮ First", disabled=(page<=1)):
+            st.query_params["page"]="1"; st.rerun()
+    with c2:
+        if st.button("◀ Prev", disabled=(page<=1)):
+            st.query_params["page"]=str(page-1); st.rerun()
+    with c3:
+        if st.button("Next ▶", disabled=(page>=total_ui_pages)):
+            st.query_params["page"]=str(min(total_ui_pages, page+1)); st.rerun()
+    with c4:
+        if st.button("Last ⏭", disabled=(page>=total_ui_pages)):
+            st.query_params["page"]=str(total_ui_pages); st.rerun()
+
+# -------------------- Favorites --------------------
+with tab_fav:
+    fav_ids = list(st.session_state["favorites"])
+    st.write(f"⭐ You have **{len(fav_ids)}** favorite(s).")
+    if not fav_ids:
+        st.info("No favorites yet. Click ☆ in results to add.")
     else:
-        # 列表模式
-        for m in movies:
-            render_movie_list_item(m)
+        for mid in fav_ids:
+            try:
+                d = get_movie_details(api_key, mid, lang=DEFAULT_LANG)
+            except Exception:
+                continue
+            title = d.get("title") or "Untitled"
+            p = d.get("poster_path")
+            rate = d.get("vote_average") or 0
+            cols = st.columns([1,4,1])
+            with cols[0]:
+                st.image(img_url(p, size="w185") if p else IMG_FALLBACK, use_container_width=True)
+            with cols[1]:
+                st.markdown(f"**{title}**  ·  ⭐ {rate:.1f}")
+                st.caption((d.get("overview","") or "")[:200] + "…")
+                st.link_button("Open on TMDB ↗", f"https://www.themoviedb.org/movie/{mid}")
+            with cols[2]:
+                if st.button("Remove", key=f"rm_{mid}"):
+                    st.session_state["favorites"].remove(mid); st.rerun()
 
-# 页脚链接
-st.caption("Data source: TMDB Open API. This product uses the TMDB API but is not endorsed or certified by TMDB.")
+# -------------------- Details Expander --------------------
+if "detail_id" in st.session_state:
+    mid = st.session_state["detail_id"]
+    with st.expander("Movie details", expanded=True):
+        try:
+            d = get_movie_details(api_key, mid, lang=lang)
+        except Exception as e:
+            st.error(f"Failed to load details: {e}")
+            d = None
+
+        if d:
+            p = d.get("poster_path")
+            cols = st.columns([1, 2])
+            with cols[0]:
+                st.image(img_url(p, size="w500") if p else IMG_FALLBACK, use_container_width=True)
+            with cols[1]:
+                st.markdown(f"### {d.get('title') or 'Untitled'}")
+                meta = []
+                if d.get("release_date"): meta.append(d["release_date"])
+                if d.get("runtime"): meta.append(f"{d['runtime']} min")
+                if d.get("vote_average") is not None: meta.append(f"⭐ {d['vote_average']:.1f}")
+                if d.get("genres"): meta.append(", ".join([g["name"] for g in d["genres"]]))
+                if meta: st.caption(" · ".join(meta))
+                if d.get("overview"): st.write(d["overview"])
+
+                cast = ((d.get("credits") or {}).get("cast") or [])[:6]
+                if cast:
+                    st.markdown("**Top Cast**")
+                    cast_line = " · ".join([f"{c.get('name','?')} ({c.get('character','')})" for c in cast])
+                    st.write(cast_line)
+
+                if region:
+                    rels = (d.get("release_dates") or {}).get("results") or []
+                    cert = None
+                    for block in rels:
+                        if block.get("iso_3166_1")==region:
+                            for rel in block.get("release_dates", []):
+                                c = rel.get("certification")
+                                if c:
+                                    cert = c; break
+                            if cert: break
+                    if cert:
+                        st.caption(f"Certification in {region}: **{cert}**")
+
+                vids = (d.get("videos", {}) or {}).get("results", [])
+                yt = next((v for v in vids if v.get("site")=="YouTube" and v.get("type") in ("Trailer","Teaser")), None)
+                if yt:
+                    st.link_button("▶ Watch trailer on YouTube", f"https://www.youtube.com/watch?v={yt['key']}")
+
+                provs = get_watch_providers(api_key, mid)
+                if region and region in provs:
+                    st.markdown("**Where to watch**")
+                    p_block = provs[region]
+                    names = []
+                    for sect in ("flatrate","rent","buy","ads","free"):
+                        arr = p_block.get(sect) or []
+                        if arr:
+                            names.append(f"{sect}: " + ", ".join(sorted({p['provider_name'] for p in arr})))
+                    if names:
+                        st.write(" · ".join(names))
+                st.link_button("↗ Open on TMDB", f"https://www.themoviedb.org/movie/{mid}")
+
+        if st.button("Close"):
+            del st.session_state["detail_id"]
+            st.rerun()
