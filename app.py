@@ -10,30 +10,34 @@ st.set_page_config(page_title="TMDB Movie Explorer", page_icon="🎬", layout="w
 # ---------- Style Injection ----------
 st.markdown("""
 <style>
-/* 背景柔和 */
+/* 背景 */
 .main { background-color: #fafafa; }
 
-/* 卡片：圆角+阴影+悬浮 + Flex撑满 */
+/* 卡片容器美化 */
 div[data-testid="stVerticalBlock"] > div.stContainer {
   border-radius: 16px !important;
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
   background: #fff !important;
   transition: transform .15s ease, box-shadow .15s ease;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  display: block; /* 外层容器 */
 }
 div[data-testid="stVerticalBlock"] > div.stContainer:hover {
   transform: translateY(-3px);
   box-shadow: 0 4px 14px rgba(0,0,0,0.12);
 }
 
-/* 电影标题/评分 */
-h3, h4, h5, h6 { color: #333; font-weight: 600 !important; }
-[data-testid="stMarkdownContainer"] span { color: #f6b800 !important; }
+/* 内层真正的卡片框架：等高关键 */
+.card-fixed{
+  display:flex;
+  flex-direction:column;
+  min-height: 420px;  /* 卡片最小高度，可按喜好微调 */
+}
 
-/* 概要文本：固定高度 + 省略号（7行） */
-.overview-7 {
+/* 顶部内容块占据剩余高度（按钮压底部） */
+.card-top{ flex: 1 1 auto; }
+
+/* 概要 7 行省略 */
+.overview-7{
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 7;
@@ -42,36 +46,53 @@ h3, h4, h5, h6 { color: #333; font-weight: 600 !important; }
   min-height: calc(1.2em * 7);
 }
 
-/* 按钮横排：居中 + 等间距 + 等宽 */
-.btnbar-wrap {
-  margin-top: auto;    /* 推到底部 */
-  padding-top: .35rem;
+/* 标题 2 行省略，大小与 subheader 接近 */
+.title-2{
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 .25rem 0;
+  color:#222;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
-.btnbar {
-  display: flex;
-  justify-content: center;
-  gap: .5rem;
-}
-.btnbar .stButton>button {
-  width: 8rem;
-  font-size: .85rem !important;
-  border-radius: 10px !important;
-  background: #f1f1f1 !important;
-  color: #333 !important;
-  border: none !important;
-  padding: .38rem .6rem !important;
-  transition: background-color .15s ease, transform .1s ease;
-}
-.btnbar .stButton>button:hover { background: #dcecff !important; transform: translateY(-1px); }
-.btnbar .stButton>button:active { background: #c0deff !important; }
 
-/* 分页按钮 */
-button[kind="secondary"] {
-  border-radius: 10px !important;
-  border: 1px solid #ddd !important;
-  background: #f9f9f9 !important;
+/* meta（日期/评分） */
+.meta{ color:#666; font-size:.9rem; margin-bottom:.35rem; }
+
+/* 海报固定高度，裁切 */
+.poster-img{
+  width:100%;
+  height:220px;
+  object-fit:cover;
+  border-radius:12px;
+  display:block;
 }
-button[kind="secondary"]:hover { background: #eef7ff !important; }
+
+/* 按钮横排：等宽、居中、贴底 */
+.btnbar-wrap{ margin-top:auto; padding-top:.35rem; }
+.btnbar{ display:flex; justify-content:center; gap:.5rem; }
+.btnbar .stButton>button{
+  width:8rem;
+  font-size:.85rem !important;
+  border-radius:10px !important;
+  background:#f1f1f1 !important;
+  color:#333 !important;
+  border:none !important;
+  padding:.38rem .6rem !important;
+  transition:background-color .15s ease, transform .1s ease;
+}
+.btnbar .stButton>button:hover{ background:#dcecff !important; transform:translateY(-1px); }
+.btnbar .stButton>button:active{ background:#c0deff !important; }
+
+/* 次级按钮（分页） */
+button[kind="secondary"]{
+  border-radius:10px !important;
+  border:1px solid #ddd !important;
+  background:#f9f9f9 !important;
+}
+button[kind="secondary"]:hover{ background:#eef7ff !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -269,61 +290,65 @@ def _fav_toggle(mid: int):
     else: favs.add(mid)
 
 def movie_card_horizontal(m, poster_size="w342"):
-    """卡片：横排内容 + 固定高度简介 + 底部按钮横向居中（使用 <img> 更稳）"""
+    """横排卡片：等高 + 简介/标题省略 + 底部按钮对齐"""
     # ---- 数据兜底 ----
     poster = m.get("poster_path")
-    title = m.get("title") or m.get("name") or "Untitled"
-    rel = m.get("release_date") or ""
+    title  = m.get("title") or m.get("name") or "Untitled"
+    rel    = m.get("release_date") or ""
     try:
         rate = float(m.get("vote_average", 0) or 0.0)
     except Exception:
         rate = 0.0
-    mid = int(m.get("id", 0) or 0)
+    mid    = int(m.get("id", 0) or 0)
     overview = (m.get("overview") or "").strip()
-
-    # poster_size 兜底成字符串
     poster_size = str(poster_size or "w342")
 
-    # ---- 生成图片 URL（最稳妥的字符串）----
-    if isinstance(poster, str) and poster.strip():
-        poster_url = img_url(poster.strip(), size=poster_size)
-    else:
-        poster_url = IMG_FALLBACK
+    # 图片 URL（字符串兜底，避免 st.image 类型报错）
+    poster_url = img_url(poster.strip(), poster_size) if isinstance(poster, str) and poster.strip() else IMG_FALLBACK
 
     with st.container(border=True):
-        # 顶部：海报 + 文案
+        # 用一个真正的等高容器包住整张卡片
+        st.markdown('<div class="card-fixed">', unsafe_allow_html=True)
+
+        # ===== 顶部内容（会自动占满高度） =====
+        st.markdown('<div class="card-top">', unsafe_allow_html=True)
         top = st.columns([1, 2])
         with top[0]:
-            # 用 HTML <img>，避免 st.image 的严格类型检查
             st.markdown(
-                f'''
-                <img src="{poster_url}"
-                     alt="poster"
-                     style="width:100%;border-radius:12px;display:block;object-fit:cover;">
-                ''',
-                unsafe_allow_html=True
+                f'<img src="{poster_url}" alt="poster" class="poster-img">', unsafe_allow_html=True
             )
         with top[1]:
-            st.subheader(title)
+            # 标题 2 行省略
+            st.markdown(f'<div class="title-2">{title}</div>', unsafe_allow_html=True)
             meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
             if meta:
-                st.caption(meta)
+                st.markdown(f'<div class="meta">{meta}</div>', unsafe_allow_html=True)
             if overview:
                 st.markdown(f'<div class="overview-7">{overview}</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # end card-top
 
-        # 底部按钮（贴底 + 居中）
+        # ===== 底部按钮：等宽、居中、贴底 =====
         st.markdown('<div class="btnbar-wrap"><div class="btnbar">', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
+
+        # Favorite：去掉表情/图标，用纯文本，避免被拆成两段
+        fav_label = "Unfavorite" if mid in st.session_state["favorites"] else "Favorite"
         with c1:
-            if st.button(("⭐ Unfavorite" if mid in st.session_state["favorites"] else "☆ Favorite"),
-                         key=f"fav_{mid}", use_container_width=True):
+            if st.button(fav_label, key=f"fav_{mid}", use_container_width=True):
                 _fav_toggle(mid); st.rerun()
+
+        # Details
         with c2:
-            if st.button("🔎 Details", key=f"detail_{mid}", use_container_width=True):
+            if st.button("Details", key=f"detail_{mid}", use_container_width=True):
                 st.session_state["detail_id"] = mid; st.rerun()
+
+        # TMDB 链接
         with c3:
-            st.link_button("↗ TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
-        st.markdown('</div></div>', unsafe_allow_html=True)
+            st.link_button("TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
+
+        st.markdown('</div></div>', unsafe_allow_html=True)  # end btnbar
+
+        st.markdown('</div>', unsafe_allow_html=True)  # end card-fixed
 
 
 # -------------------- Results --------------------
