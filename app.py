@@ -269,23 +269,45 @@ def _fav_toggle(mid: int):
     else: favs.add(mid)
 
 def movie_card_horizontal(m, poster_size="w342"):
-    """卡片：横排内容 + 固定高度简介 + 底部按钮横向居中"""
+    """卡片：横排内容 + 固定高度简介 + 底部按钮横向居中（使用 <img> 更稳）"""
+    # ---- 数据兜底 ----
     poster = m.get("poster_path")
     title = m.get("title") or m.get("name") or "Untitled"
     rel = m.get("release_date") or ""
-    rate = m.get("vote_average", 0)
-    mid = m.get("id")
+    try:
+        rate = float(m.get("vote_average", 0) or 0.0)
+    except Exception:
+        rate = 0.0
+    mid = int(m.get("id", 0) or 0)
     overview = (m.get("overview") or "").strip()
+
+    # poster_size 兜底成字符串
+    poster_size = str(poster_size or "w342")
+
+    # ---- 生成图片 URL（最稳妥的字符串）----
+    if isinstance(poster, str) and poster.strip():
+        poster_url = img_url(poster.strip(), size=poster_size)
+    else:
+        poster_url = IMG_FALLBACK
 
     with st.container(border=True):
         # 顶部：海报 + 文案
         top = st.columns([1, 2])
         with top[0]:
-            st.image(img_url(poster, size=poster_size) if poster else IMG_FALLBACK, use_container_width=True)
+            # 用 HTML <img>，避免 st.image 的严格类型检查
+            st.markdown(
+                f'''
+                <img src="{poster_url}"
+                     alt="poster"
+                     style="width:100%;border-radius:12px;display:block;object-fit:cover;">
+                ''',
+                unsafe_allow_html=True
+            )
         with top[1]:
             st.subheader(title)
             meta = " · ".join([x for x in [rel, f"⭐ {rate:.1f}"] if x])
-            if meta: st.caption(meta)
+            if meta:
+                st.caption(meta)
             if overview:
                 st.markdown(f'<div class="overview-7">{overview}</div>', unsafe_allow_html=True)
 
@@ -302,6 +324,7 @@ def movie_card_horizontal(m, poster_size="w342"):
         with c3:
             st.link_button("↗ TMDB", f"https://www.themoviedb.org/movie/{mid}", use_container_width=True)
         st.markdown('</div></div>', unsafe_allow_html=True)
+
 
 # -------------------- Results --------------------
 with tab_results:
